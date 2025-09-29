@@ -1,0 +1,299 @@
+---
+title: "Lab 1: Gapminder Data Visualization"
+author: Sydney Thompson
+format:
+  html:
+    toc: true
+    code-fold: true
+    embed-resources: true
+echo: true
+theme: flatly
+---
+
+## Task 1
+
+1.  Identify and list what aesthetics are being used and which variables are being mapped to each aesthetic.
+
+This GapMinder data visualization results in a bubble chart. The aesthetics for this data visualization is income (x-axis), life expectancy (y-axis), world region (color), and population (size). Income is shown on a log-scale because the x-axis labels double each time. Life expectancy is labeled in years. World region is categorical because it is based on color (color-coded by continent). Finally, population represents size because the bubble sizes correspond to each population's country size (how big or small they are).
+
+2.  Import the q1data.csv dataset.
+
+```{python}
+
+# importing the dataset: q1data.csv
+
+import pandas as pd
+from plotnine import *
+df = pd.read_csv("q1data.csv")
+
+# good check to see if data looks correct
+df1 = df.dropna()
+df1.head()
+df1
+```
+
+3.  Recreate the plot as best you can using plotnine.
+
+```{python}
+
+from plotnine import *
+
+# created a dictionary for the colors of the continents
+
+world_regions = {
+    "africa": "cyan",
+    "americas": "lawngreen",
+    "asia": "deeppink",
+    "europe": "yellow"
+}   
+
+# created a subset of the dataset for the year 2010
+df_2010 = df1[df1['year'] == 2010].copy()
+
+# x-axis labels
+x_breaks = [500, 1000, 2000, 4000, 8000, 16000, 32000, 64000]
+x_labels = ["500", "1000", "2000", "4000", "8000", "16k", "32k", "64k"]
+
+# y-axis labels
+y_breaks = [20, 30, 40, 50, 60, 70, 80, 90]
+y_labels = ["20", "30", "40", "50", "60", "70", "80", "90"]
+
+plot_1 = (
+    ggplot(df_2010, aes(x="income", y="life_exp",
+                   size="population",
+                   fill = "four_regions"))
+    #  for outline and shape of bubbles
+    + geom_point(shape = 'o', color = 'black', stroke = .25)
+    + scale_fill_manual(values = world_regions)
+    # income on log scale
+    + scale_x_log10(breaks = x_breaks, limits = (500, 100000), labels = x_labels)
+    # helpful with size of bubbles
+    + scale_size_area(max_size=18)
+    + scale_y_continuous(breaks = y_breaks, limits=(20, 90), labels = y_labels)  
+    # watermark from the screenshot (2010 label)
+    + annotate(geom='text', x = 6500, y = 55, label ='2010', size=100, alpha = 0.2, color = 'gray')
+    + labs(x="Income (GDP per capita)",
+           y="Life expectancy (years)",
+           title="Income vs Life expectancy (2010)")
+    + theme_minimal()
+)
+
+plot_1
+
+```
+
+4.  What other geometries could you use here besides geom_point? Provide an actual plot of another geometry being used here and why it's good or bad for visualizing these data.
+
+```{python}
+
+from plotnine import *
+
+# creates a facet_wrap() with geom_histogram for life expectancies
+
+(ggplot(
+    df_2010, aes(x="life_exp", fill="four_regions"))+ geom_histogram(binwidth=5)
+    + scale_fill_manual(values=world_regions)
+   # looked up scales=free_y -> for y-axes for each plot
+    + facet_wrap('~four_regions', scales='free_y')
+    + labs(x = "Life Expectancy (in years)", y = "Count", title = "Life Expectancies by Continents in 2010")
+)
+
+```
+
+I chose to create a geom_histogram() plot using the facet_wrap(). It's good for visualizing this data because it shows the distribution based on each continent. Faceting is useful because we can quickly see and compare the different regions (continents). We don't have to worry about the overlapping of the histograms. In addition, it is easier to group with one variable; in this case, it's life expectancy.
+
+## Task 2
+
+1.  Identify and list what aesthetics are being used and which variables are being mapped to each aesthetic.
+
+The second Gapminder data visualization also results in another bubble chart. The aesthetics for this data visualization is exports (x-axis), imports (y-axis), world region (color), and energy use (size). Both the imports and exports are measured by percentage of GDP. Also, world region is categorical again because the regions are color-coded by continent. Finally, the energy use represents size because the bubbles are proportional to how much energy each country uses.
+
+2.  Import the q2data.csv dataset
+
+```{python}
+import pandas as pd
+
+# importing the dataset q2data.csv
+df2 = pd.read_csv("q2data.csv")
+
+# good check to see if data looks correct
+updated_df2 = df2.dropna()
+updated_df2.head()
+updated_df2
+```
+
+3.  Recreate the plot as best you can using plotnine.
+
+```{python}
+
+from plotnine import *
+
+# using the same colors as above
+
+world_regions = {
+    "africa": "cyan",
+    "americas": "lawngreen",
+    "asia": "deeppink",
+    "europe": "yellow"
+}   
+
+# subsetting the data for the year 1997
+df_1997 = updated_df2[updated_df2['year'] == 1997].copy()
+
+# energy values are either strings or floats -> converted to numberic by forcing coerce
+df_1997["energy"] = pd.to_numeric(updated_df2["energy"], errors = 'coerce')
+
+# x-axis labels
+x_breaks_2 = [0, 20, 40, 60, 80, 100, 120, 140, 160, 180, 200, 220, 240]
+x_labels_2 = ["0", "20", "40", "60", "80", "100", "120", "140", "160", "180", "200", "220", "240"]
+
+# y-labels
+y_breaks_2 = [50, 100, 150, 200, 250, 300, 350, 400]
+y_labels_2 = ["50", "100", "150", "200", "250", "300", "350", "400"]
+
+plot_2 = (
+    ggplot(df_1997, aes(x = "exports", y = "imports",
+                   size = "energy",
+                   fill = "four_regions"))
+    #  for outline of bubbles
+    + geom_point(shape = 'o', color = 'black', stroke = .25)
+    + scale_fill_manual(values = world_regions)
+    + scale_x_continuous(breaks = x_breaks_2, limits=(0, 240), labels=x_labels_2)
+    # helpful with sizes of bubbles for energy
+    + scale_size_area(max_size=12)
+    + scale_y_continuous(breaks = y_breaks_2, limits=(50, 400), labels=y_labels_2)  
+    # watermark for label 1997
+    + annotate(geom ='text', x = 120, y = 250, label ='1997', size=100, alpha = 0.2, color = 'gray')
+    + labs(x="Exports ('/%' of GDP)",
+           y="Imports ('/%' of GDP)",
+           fill = "four_regions",
+           title="Exports vs Imports (1997)")
+    + theme_minimal()
+)
+
+plot_2
+
+```
+
+4.  What other geometries could you use here besides geom_point? Provide an actual plot of another geometry being used here and why it's good or bad for visualizing these data.
+
+```{python}
+
+from plotnine import *
+
+world_regions = {
+    "africa": "cyan",
+    "americas": "lawngreen",
+    "asia": "deeppink",
+    "europe": "yellow"
+}
+
+# creating a side-by-side boxplot of imports based on the 4 different continents
+
+(ggplot(
+    df_1997, aes('four_regions', 'imports', fill = 'four_regions'))
+    + scale_fill_manual(values = world_regions)
+    + geom_boxplot()
+    + labs(x='World region', y = 'Imports (percentage of GDP)', title = "Side-by-Side Boxplots of Imports Based on Continents (1997)", fill = 'four_regions')
+)
+
+```
+
+I chose to do a geom_boxplot() plot. This is good for visualizing these data because it allows us to easily compare the summary statistics based on the box-and-whisker plots. We can compare the spread, the outliers, and other skewed values, which gives a better overview of how imports (percentage of GDP) compare across the different continents and countries. In addition, we can see how different or similar each continent performs (how much they import and export to different countries).
+
+## Task 3
+
+1.  Identify and list what aesthetics are being used and which variables are being mapped to each aesthetic.
+
+This third GapMinder data visualization also results in a bubble chart. The aesthetics for this data visualization is individuals using the internet (x-axis), GDP per capita (y-axis), world region (color), and income (size). Individuals using the internet is measured by percentage of the population. GDP per capita is measured in USD and transformed into a log-scale. World region is categorical because it is based on color (color-coded by continent). Finally, income represents size because the bubble sizes correspond to each population's income.
+
+2.  Import the q3data.csv dataset
+
+```{python}
+import pandas as pd
+
+# import dataset: q3data.csv
+df3 = pd.read_csv("q3data.csv")
+
+# good check to see if data looks correct
+updated_df3 = df3.dropna()
+updated_df3.head()
+updated_df3
+```
+
+3.  Recreate the plot as best you can using plotnine.
+
+```{python}
+
+from plotnine import *
+
+# continuing with same colors as above
+world_regions = {
+    "africa": "cyan",
+    "americas": "lawngreen",
+    "asia": "deeppink",
+    "europe": "yellow"
+}   
+
+# 1) subset data for 2001
+df_2001 = updated_df3[updated_df3['year'] == 2001].copy()
+#df_2001
+
+# x-axis labels
+x_breaks_3 = [10, 20, 30, 40, 50, 60, 70, 80, 90]
+x_labels_3 = ["10", "20", "30", "40", "50", "60", "70", "80", "90"]
+
+# y-axis labels
+y_breaks_3 = [200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000]
+y_labels_3 = ["200", "500", "1000", "2000", "5000", "10000", "20000", "50000", "100000"]
+
+plot_3 = (
+    ggplot(df_2001, aes(x="internet_users", y="gdp", size="income", fill = "four_regions"))
+    #  outline of bubbles for output
+    + geom_point(shape = 'o', color = 'black', stroke = .25)
+    + scale_fill_manual(values = world_regions)
+    + scale_x_continuous(breaks = x_breaks_3, limits=(0, 90), labels=x_labels_3)
+    # helpful with size of bubbles
+    + scale_size_area(max_size=12)
+    # gdp on log-scale
+    + scale_y_log10(breaks = y_breaks_3, limits=(200, 100000), labels=y_labels_3)  
+    + annotate(geom='text', x = 50, y = 4000, label ='2001', size=90, alpha = 0.2, color = 'gray')
+    + labs(x="Individuals using the Internet (percentage of population)",
+           y="GDP per capital",
+           title = "Internet Users vs. GDP per capita (2001)")
+    + theme_minimal()
+)
+
+plot_3
+
+
+```
+
+4.  What other geometries could you use here besides geom_point? Provide an actual plot of another geometry being used here and why it's good or bad for visualizing these data.
+
+```{python}
+
+from plotnine import *
+
+world_regions = {
+    "africa": "cyan",
+    "americas": "lawngreen",
+    "asia": "deeppink",
+    "europe": "yellow"
+}   
+
+# violin plot of internet users based on continents
+
+p_violin_net = (
+    ggplot(df_2001, aes('four_regions', 'internet_users', fill='four_regions'))
+    + geom_violin(trim=False)
+    + geom_boxplot()
+    + scale_fill_manual(values=world_regions)
+    + labs(x='World region', y='Individuals using the Internet (%)', title = "Violin Plots by Continent Based on Internet Users (2001)", fill='Region')
+    + theme_minimal()
+)
+
+p_violin_net
+```
+
+I chose to do a violin plot. In this case, I don't think this is the best for visualizing the data. However, I think it is still good at showing the entire distribution of each region. We can see the peaks, tails, and if there is symmetry. The boxplots show us how internet usage varies among continents. I think it is consistent, and it allows us to better understand and interpret the median and quartile values. In addition, it is helpful because we could easily determine if the data is clumped near a certain value or skewed.
