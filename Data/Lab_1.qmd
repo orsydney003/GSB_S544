@@ -10,6 +10,8 @@ echo: true
 theme: flatly
 ---
 
+Github link: <https://github.com/orsydney003/GSB_S544>
+
 ## Task 1
 
 1.  Identify and list what aesthetics are being used and which variables are being mapped to each aesthetic.
