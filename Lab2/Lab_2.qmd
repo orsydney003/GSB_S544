@@ -1,0 +1,539 @@
+---
+title: "Lab 2: Avocado Sales"
+author: Sydney Thompson
+format:
+  html:
+    toc: true
+    code-fold: true
+    embed-resources: true
+echo: true
+theme: flatly
+---
+
+## 0. Importing the Data Set
+
+```{python}
+import pandas as pd
+import numpy as np
+from plotnine import *
+
+avocado_data = pd.read_csv("avocado_sales/avocado-updated-2020.csv")
+avocado_data = avocado_data.reset_index(drop = True)
+avocado_data
+#avocado_data.head(10)
+```
+
+## 1. Brief Description of Data Set
+
+For this lab, this data set contains weekly retail scan data for Hass avocados across the US from 2015-2020. This data set comes from Kaggle and the Hass Avocado Board.
+
+There are 13 variables (columns):
+
+-   date (the date of the observation)
+
+-   average_price (the average price of a single avocado)
+
+-   type (conventional or organic) -\> categorical
+
+-   year (from 2015-2020)
+
+-   geography (city/region of US of observation)
+
+-   total_volume (total number of avocados sold)
+
+-   4046 (total number of avocados with PLU 4046 sold = small avocados)
+
+-   4225 (total number of avocados with PLU 4225 sold = large avocados)
+
+-   4770 (total number of avocados with PLU 4770 sold = extra large avocados)
+
+-   total_bags (total number of bags of avocados sold)
+
+-   small_bags (number of small bags of avocados sold)
+
+-   large_bags (number of large bags of avocados sold)
+
+-   xlarge_bags (number of extra-large bags of avocados sold)
+
+## 2. Clean the data in any way you see fit.
+
+```{python}
+# drop Nas
+avocado_data.dropna()
+
+```
+
+```{python}
+
+# how many distinct regions are there? -> 54
+
+avocado_data['geography'].unique()
+
+```
+
+```{python}
+
+# rename columns 4046, 4225, and 4770
+
+avocado_data = avocado_data.rename(columns = {'4046': 'sm_avocados_plu_4046', '4225': 'lg_avocados_plu_4225', '4770': 'xl_avocados_plu_4770'})
+avocado_data
+
+```
+
+```{python}
+
+# geography variable is categorized either as a city -> state -> region -> US (total US)
+
+# splitting into the 8 major regions: Great Lakes, Midsouth, Northeast,
+# Northern New England, Plains, South Central, Southeast, West
+# leave individual cities alone
+
+# Splitting into the 8 major regions:
+# Great Lakes, Midsouth, Northeast, Northern New England,
+# Plains, South Central, Southeast, West
+
+major_region = {
+    # Northeast
+    "Albany": "Northeast",
+    "Baltimore/Washington": "Northeast",
+    "Boston": "Northeast",
+    "Buffalo/Rochester": "Northeast",
+    "Harrisburg/Scranton": "Northeast",
+    "Hartford/Springfield": "Northeast",
+    "New York": "Northeast",
+    "Philadelphia": "Northeast",
+    "Pittsburgh": "Northeast",
+    "Syracuse": "Northeast",
+    "Northeast": "Northeast",
+
+    # Northern New England
+    "Northern New England": "Northern New England",
+
+    # Great Lakes
+    "Chicago": "Great Lakes",
+    "Cincinnati/Dayton": "Great Lakes",
+    "Columbus": "Great Lakes",
+    "Detroit": "Great Lakes",
+    "Grand Rapids": "Great Lakes",
+    "Indianapolis": "Great Lakes",
+    "Great Lakes": "Great Lakes",
+
+    # Midsouth
+    "Louisville": "Midsouth",
+    "Nashville": "Midsouth",
+    "Midsouth": "Midsouth",
+
+    # Plains
+    "St. Louis": "Plains",
+    "Plains": "Plains",
+
+    # South Central
+    "Dallas/Ft. Worth": "South Central",
+    "Houston": "South Central",
+    "South Central": "South Central",
+
+    # Southeast
+    "Atlanta": "Southeast",
+    "Charlotte": "Southeast",
+    "Jacksonville": "Southeast",
+    "Miami/Ft. Lauderdale": "Southeast",
+    "Orlando": "Southeast",
+    "Raleigh/Greensboro": "Southeast",
+    "Richmond/Norfolk": "Southeast",
+    "Roanoke": "Southeast",
+    "South Carolina": "Southeast",
+    "Tampa": "Southeast",
+    "New Orleans/Mobile": "Southeast",
+    "Southeast": "Southeast",
+
+    # West
+    "Boise": "West",
+    "California": "West",
+    "Denver": "West",
+    "Las Vegas": "West",
+    "Los Angeles": "West",
+    "Phoenix/Tucson": "West",
+    "Portland": "West",
+    "Sacramento": "West",
+    "San Diego": "West",
+    "San Francisco": "West",
+    "Seattle": "West",
+    "Spokane": "West",
+    "West Tex/New Mexico": "West",
+    "West": "West",
+}
+
+avocado_data['major_region'] = avocado_data['geography'].map(major_region)
+avocado_data.dropna()
+avocado_data
+
+```
+
+```{python}
+
+# cleaning for metro regions
+
+metro_regions = ['Albany', 'Atlanta', 'Baltimore/Washington', 'Boise', 'Boston',
+       'Buffalo/Rochester', 'Charlotte', 'Chicago',
+       'Cincinnati/Dayton', 'Columbus', 'Dallas/Ft. Worth', 'Denver',
+       'Detroit', 'Grand Rapids', 'Harrisburg/Scranton',
+       'Hartford/Springfield', 'Houston', 'Indianapolis', 'Jacksonville',
+       'Las Vegas', 'Los Angeles', 'Louisville', 'Miami/Ft. Lauderdale',
+       'Nashville', 'New Orleans/Mobile', 'New York',
+       'Orlando', 'Philadelphia', 'Phoenix/Tucson', 'Pittsburgh', 'Portland',
+       'Raleigh/Greensboro', 'Richmond/Norfolk', 'Roanoke', 'Sacramento',
+       'San Diego', 'San Francisco', 'Seattle', 'Spokane',
+       'St. Louis', 'Syracuse', 'Tampa']
+
+# using .loc and .isin() to create the 'metro_regions'
+avocado_data['metro_regions'] = np.nan
+avocado_data.loc[avocado_data['geography'].isin(metro_regions), 'metro_regions'] = avocado_data['geography']
+
+#avocado_data
+
+```
+
+## 3. Which major geographical region sold the most total organic, small Hass avocados in 2017?
+
+```{python}
+
+#3. Which major geographical region sold the most total organic, small Hass avocados in 2017?
+
+avocado_clean = avocado_data
+
+avocado_clean = avocado_clean[(avocado_clean['year'] == 2017) & (avocado_clean['type'] == 'organic')]
+avocado_clean
+
+avocado_clean[["sm_avocados_plu_4046", "major_region"]]
+avocado_clean.groupby('major_region')['sm_avocados_plu_4046'].sum()
+
+# west is the most
+
+```
+
+The `West` region sold the most total organic, small Hass avocados in 2017. This region sold approximately 5,826,061 small, organic Hass avocados that year.
+
+## 4. Split the `date` variable into month, day, and year variables. In which month is the highest average volume of avocado sales?
+
+```{python}
+# 4. Split the date variable into month, day, and year variables.
+
+avocado_clean2 = avocado_data
+
+avocado_clean2['date'] = pd.to_datetime(avocado_clean2['date'])
+
+avocado_clean2['month'] = avocado_clean2['date'].dt.month
+avocado_clean2['day'] = avocado_clean2['date'].dt.day
+
+#avocado_clean2
+```
+
+```{python}
+# groupby month and calculate average total_volume
+average_volume_by_month = avocado_clean2.groupby('month')['total_volume'].mean()
+average_volume_by_month
+
+```
+
+```{python}
+
+# Find the month with the highest average volume
+month_highest_volume = average_volume_by_month.sort_values(ascending=False)
+month_highest_volume
+
+# may is the highest month
+
+```
+
+As a result, May is the month with the highest average volume of avocado sales with 1,123,632 avocados sold.
+
+## 5. Which metro area geographical regions sold the most total avocados? Plot the side-by-side box-plots of the total volume for only the five metro geographical regions with the highest averages for the total_volume variable.
+
+```{python}
+
+avocado_clean3 = avocado_data
+avocado_clean3 = avocado_clean3[avocado_clean3['metro_regions'].notna()]
+avocado_clean3
+
+avocado_clean3 = avocado_clean3.groupby('metro_regions')['total_volume'].sum().reset_index()
+avocado_clean3 = avocado_clean3.sort_values(by='total_volume', ascending=False)
+
+# looked up nlargest() to get top 5 metro regions by total volume
+top_5_clean = avocado_clean3.nlargest(5, 'total_volume')
+top_5_clean
+
+```
+
+```{python}
+# summary statistics
+top_5_clean.describe()
+```
+
+```{python}
+
+from plotnine import *
+
+# Filter the original avocado_clean data to include only the top 5 metro regions
+top_5_regions_list = top_5_clean['metro_regions'].tolist()
+avocado_top_5_regions = avocado_data[avocado_data['metro_regions'].isin(top_5_regions_list)]
+
+(ggplot(avocado_top_5_regions, aes(x='metro_regions', y='total_volume'))
+ + geom_boxplot(fill = "orange")
+ # geom_jitter() allows to see individual observations
+ + geom_jitter(width=0.2, alpha=0.5)
+ + labs(x='Metro Regions', y='Total Volume', title = "Total Volume Distribution for Top 5 Metro Regions"))
+
+```
+
+The top 5 metro regions that sold the most total avocados were Los Angeles, New York, Dallas/Ft. Worth, Houston, and Phoenix/Tucson. The highest average values were plotted in the box-plot above. Los Angeles' average was 1,567,566 avocados sold; New York's average was 863,145.8 avocados sold; Dallas/Ft. Worth's average was 712,751.9 avocados sold; Houston's average was 687,653.3 avocados sold; finally, Phoenix/Tucson's average was 625,038.3 avocados sold.
+
+In addition, the total volume of avocados sold in Los Angeles was 959,350,500. For New York, it was 528,245,200 avocados sold. For Dallas/Ft. Worth, the total volume was 436,204,200 avocados sold. For Houston, it was 420,843,800 avocados sold. Finally, for Phoenix/Tucson, the total volume was 382,523,400 avocados sold.
+
+## 6. From your cleaned data set, create a data set with only these California regions and answer the following questions about these California regions only.
+
+```{python}
+avocado_clean4 = avocado_data
+
+avocado_clean4 = avocado_clean4[((avocado_clean4['geography'] == 'San Diego') | (avocado_clean4['geography'] == 'Los Angeles') | (avocado_clean4['geography'] == 'San Francisco') | (avocado_clean4['geography'] == 'Sacramento'))]
+avocado_clean4
+```
+
+## 7. In which California regions is the price of organic versus conventional avocados most different? Support your answer with a few summary statistics AND a visualization.
+
+```{python}
+
+# average price for conventional and organic avocados in the CA regions
+california_avg_price = avocado_clean4.groupby(['geography', 'type'])['average_price'].mean()
+
+# Unstack the 'type' level to make 'conventional' and 'organic' into columns
+california_avg_price_unstacked = california_avg_price.unstack()
+
+# price difference between organic and conventional avocados
+california_avg_price_unstacked['price_difference'] = abs(california_avg_price_unstacked['organic'] - california_avg_price_unstacked['conventional'])
+
+california_avg_price_unstacked
+
+```
+
+```{python}
+# summary statistics
+california_avg_price_unstacked.describe()
+```
+
+```{python}
+
+# find region with largest price difference
+region_most_different = california_avg_price_unstacked['price_difference'].sort_values(ascending=False)
+region_most_different
+
+```
+
+```{python}
+# summary plot showing differences between cities in CA
+
+from plotnine import *
+
+# using .melt() and reseting index to reshape data set
+california_avg_price_melted = california_avg_price_unstacked.reset_index().melt(id_vars='geography', value_vars=['conventional', 'organic'], var_name='type', value_name='average_price')
+
+# visualization: bar chart
+(ggplot(california_avg_price_melted, aes(x='geography', y='average_price', fill='type'))
+ + geom_bar(stat='identity', position='dodge')
+ + labs(x='California Region', y='Average Price', fill='Avocado Type',
+        title='Average Price of Organic vs. Conventional Avocados in CA Regions')
+ + theme(axis_text_x=element_text(rotation=45, hjust=1)))
+
+```
+
+Based on my summary statistics, tables, and bar chart, San Francisco has the highest price difference between organic and conventional avocados. The price difference for San Francisco is \$0.72. For San Diego, it is \$0.68. For Sacramento, it is \$0.58. Finally, the price difference for Los Angeles is \$0.53.
+
+## 8. The following plot shows, for all four California regions, the proportion of the average Hass avocado sales that are small, large, or extra large; conventional vs. organic. Recreate the plot; you do not have to replicate the exact finishing touches - e.g., color, theme - but your plot should resemble the content of this plot. Tip: this will require transforming of your data! Sketch out what you want the data set to look like before you begin to code! I recommend starting with your California data set you create in Q6.
+
+```{python}
+# first transforming data
+
+ca_prop = avocado_clean4
+ca_prop
+```
+
+```{python}
+ca_regions = ["Los Angeles", "Sacramento", "San Diego", "San Francisco"]
+geo_order = ca_regions
+type_order = ["conventional", "organic"]
+size_order = ["Xlarge", "Large", "Small"]
+
+size_colors = {
+    "Small": "#E7791D", 
+    "Large": "#25A18E", 
+    "Xlarge": "#7765B2"
+    }
+
+# fixed percent axis (no lambdas)
+breaks_pct = [0, 0.25, 0.50, 0.75, 1.00]
+labels_pct = ["0%", "25%", "50%", "75%", "100%"]
+```
+
+```{python}
+# map sizes with .merge()
+size_map_df = pd.DataFrame({
+    "avocado_size": ["sm_avocados_plu_4046", "lg_avocados_plu_4225", "xl_avocados_plu_4770"],
+    "size": ["Small", "Large", "Xlarge"]
+})
+```
+
+```{python}
+# changing from wide to long format
+# also check ca_regions and compute mean for geography and type
+
+ca_wide = (
+    avocado_clean4.loc[avocado_clean4["geography"].isin(ca_regions)]
+            .groupby(["geography", "type"], as_index=False)[
+                ["sm_avocados_plu_4046", "lg_avocados_plu_4225", "xl_avocados_plu_4770"]
+            ].mean()
+)
+
+# long format
+ca_long = (
+    ca_wide.melt(id_vars=["geography", "type"],
+                 var_name="avocado_size",
+                 value_name="volume")
+          .merge(size_map_df, on="avocado_size", how="left")
+)
+
+```
+
+```{python}
+
+# sum by (geography, type, size) then proportions within each (geography, type)
+ca = (ca_long.groupby(["geography", "type", "size"], as_index=False)["volume"].sum())
+group_totals = ca.groupby(["geography", "type"])["volume"].transform("sum")  # no lambda
+ca["proportion"] = ca["volume"] / group_totals
+
+# 4) factor orders (controls x order and stack order)
+ca["geography"] = pd.Categorical(ca["geography"], geo_order, ordered=True)
+ca["type"] = pd.Categorical(ca["type"], type_order, ordered=True)
+ca["size"] = pd.Categorical(ca["size"], size_order, ordered=True)
+
+```
+
+```{python}
+
+# recreating the plot
+
+(
+    ggplot(ca, aes("geography", "proportion", fill="size"))
+    + geom_col()
+    + facet_wrap("~type", ncol=2)
+    + scale_y_continuous(breaks=breaks_pct, labels=labels_pct)
+    + coord_cartesian(ylim=(0, 1.05))
+    + scale_fill_manual(values=size_colors, limits=size_order, name="size")
+    + labs(title="Proportion of Average Hass Avocado Sales by Size",
+           x="Region of California", y="Proportion")
+    + theme(axis_text_x=element_text(rotation=20, hjust=1),
+            strip_text=element_text(size=10),
+            figure_size=(8, 6))
+)
+
+```
+
+## Outside Data: A joke in the media is that Millennials can’t afford houses, because they spend all their money buying avocado toast. Let’s use this data set to address that claim. Find or assemble a data set of real data, with house prices for these four California regions. Join this data set with your California avocado data set. Use your new joined data set to make an argument about the relationship between house prices and avocado prices/sales. Support your argument with a plot.
+```{python}
+# outside data
+
+import pandas as pd
+from plotnine import *
+
+# reading in zillow .csv file from internet
+# under zillow housing data sets
+# https://www.zillow.com/research/data/?msockid=12cdad0ca6f56dac19abbb68a7836c03
+
+zillow_url = "https://files.zillowstatic.com/research/public_csvs/zhvi/Metro_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv"
+zillow_df = pd.read_csv(zillow_url)
+zillow_df
+
+```
+
+```{python}
+# keeping and renaming for the 4 cities
+metros_keep = {
+    "Los Angeles, CA": "Los Angeles",
+    "San Diego, CA": "San Diego",
+    "Sacramento, CA": "Sacramento",
+    "San Francisco, CA": "San Francisco",
+}
+
+# using the dataframe from above and mapping to metro_keep (dictionary)
+zillow_df = (zillow_df[zillow_df["RegionName"].isin(metros_keep.keys())])
+zillow_df["geography"] = zillow_df["RegionName"].map(metros_keep)
+
+date_columns = zillow_df.columns[5:]
+
+# .melt() from wide to long format of dataset
+# zhvi -> stands for Zillow Home Value Index
+# in data set, the prices are shown under different dates (from 2000-2025)
+zillow_long = (
+    zillow_df.melt(id_vars=["geography","RegionName","StateName","RegionID"],
+               value_vars=date_columns,
+               var_name="date", value_name="zhvi_usd")
+)
+zillow_long["date"] = pd.to_datetime(zillow_long["date"])
+zillow_long["year"] = zillow_long["date"].dt.year
+
+# annual typical home value by metro-year
+zillow_year = (
+    zillow_long.groupby(["geography","year"], as_index=False)["zhvi_usd"].mean()
+)
+```
+
+```{python}
+# filtering for date, geography, type, year
+# using clean_6 dataset and assigning it to new variable
+
+df_zillow = avocado_clean4
+df_zillow["date"] = pd.to_datetime(df_zillow["date"])
+
+# isin() to check that both of these are in the data set
+df_zillow = df_zillow[df_zillow["geography"].isin(["Los Angeles",
+                                                   "San Diego",
+                                                   "Sacramento",
+                                                   "San Francisco"])]
+
+df_zillow["year"] = df_zillow["date"].dt.year
+
+# annual summaries for geography, type, and year
+# used groupby and aggregate functions
+avo_year = (
+    df_zillow.groupby(["geography", "type", "year"], as_index=False)
+      .agg(avg_avocado_price=("average_price", "mean"),
+           total_volume=("total_volume", "sum"))
+)
+
+#avo_year
+```
+
+```{python}
+# merging the two datasets
+joined_data = avo_year.merge(zillow_year, on=["geography","year"], how="inner")
+joined_data
+
+# sorting based on geography variable
+joined_data.sort_values(by='geography', ascending=False).reset_index(drop=True)
+```
+
+```{python}
+from plotnine import *
+
+(ggplot(joined_data, aes(x="zhvi_usd", y="avg_avocado_price",
+                       color="geography", shape="type"))
+    + geom_point(size = 5, alpha = 0.50)
+    # looked up geom_smooth() arguments and experimented with them
+    + geom_smooth(method="lm", se=False, linetype="dashed", color="black")
+    + scale_x_continuous()
+    + labs(title="Home Value vs. Average Avocado Price (2015-2020)",
+           x="ZHVI (typical home value in $)",
+           y="Average avocado price ($/unit)")
+    + theme()
+)
+```
+
+I used a public research dataset on Zillow: https://files.zillowstatic.com/research/public_csvs/zhvi/Metro_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv. This data set looks at ZHVI's, which stands for Zillow House Value Index. I cleaned the data so that I was looking at the four California regions: Sacramento, San Diego, San Francisco, and Los Angeles. After merging this with the avocado data, I do not believe there is a relationship between House Prices and Average Avocado Prices. There is no correlation; it is very weak. There is no pattern because the observations (points) are scattered all over the place.
