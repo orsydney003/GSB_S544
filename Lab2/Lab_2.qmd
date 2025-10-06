@@ -10,6 +10,8 @@ echo: true
 theme: flatly
 ---
 
+Github Link: <https://github.com/orsydney003/GSB_S544/tree/main/Lab2>
+
 ## 0. Importing the Data Set
 
 ```{python}
