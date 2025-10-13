@@ -1,0 +1,19 @@
+---
+title: "Lab 3: Singing a Song"
+author: Sydney Thompson
+format:
+  html:
+    toc: true
+    code-fold: true
+    embed-resources: true
+echo: true
+theme: flatly
+---
+
+## 1. Import the data set.
+```{python}
+
+import pandas as pd
+xmas = pd.read_csv("https://www.dropbox.com/scl/fi/qxaslqqp5p08i1650rpc4/xmas.csv?rlkey=erdxi7jbh7pqf9fh4lv4cayp5&dl=1")
+
+```
