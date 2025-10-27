@@ -1,0 +1,450 @@
+---
+title: "Lab 4: Data is Delicious"
+author: Sydney Thompson
+format:
+  html:
+    toc: true
+    code-fold: true
+    embed-resources: true
+echo: true
+theme: flatly
+---
+
+Github link: <https://github.com/orsydney003/GSB_S544/tree/main/Lab4>
+
+## 1. Data from unstructured websites
+
+This website contains many weekly meal plans. Choose one that seems delicious to you. Scrape the weekly meal plan into a table with the following columns:
+
+- Day of the Week
+- Name of Recipe
+- Link to Recipe
+- Price of Recipe
+
+```{python}
+import pandas as pd
+import numpy as np
+import requests
+import re
+from urllib.parse import urljoin
+from bs4 import BeautifulSoup
+```
+
+```{python}
+
+headers ={ "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" }
+
+req = requests.Session()
+
+# allows you to get the html content
+response = req.get("https://tastesbetterfromscratch.com/meal-plan-197", headers=headers)
+
+soup = BeautifulSoup(response.content, "html.parser")
+
+```
+
+```{python}
+p_lines = len(soup.find_all("p"))
+p_lines
+```
+
+```{python}
+
+days = []
+recipe_name = []
+links = []
+prices = []
+
+# If meal items are in "<p>"
+nodes = soup.select("p")
+
+# used Chat GPT for exact regex expressions
+# .compile() - takes a regex pattern and turns it into a reusable object
+day_names = r"Monday|Tuesday|Wednesday|Thursday|Friday" 
+pattern = re.compile(rf"\b({day_names})\b:?\s*(.+?)\s*(?:\$\s*([\d,]+(?:\.\d{{1,2}})?))?\s*$", re.IGNORECASE)
+
+base_url = "https://tastesbetterfromscratch.com/meal-plan-197"
+
+for node in nodes:
+  # normalize inner spacing
+    text = node.get_text(" ", strip=True)
+    m = pattern.search(text)
+    if not m:
+        continue
+
+# looked up .capitalize()
+# - only converts the first letter to an uppercase letter
+# lstrip() - removes the ":" found when scraping
+    day = m.group(1).capitalize()
+    recipe = m.group(2).strip().lstrip(": ")
+    price_text = m.group(3).strip() if m.group(3) else None
+
+    # if a link is in the same node
+    link_tag = node.find("a", href=True)
+    recipe_url = urljoin(base_url, link_tag["href"]) if link_tag else None
+
+    days.append(day)
+    recipe_name.append(recipe)
+    links.append(recipe_url)
+    prices.append(price_text)
+
+df_mealplan = pd.DataFrame({
+    "Day of the Week": days,
+    "Name of Recipe": recipe_name,
+    "Link to Recipe": links,
+    "Price of Recipe": prices
+})
+
+```
+
+```{python}
+df_mealplan
+```
+
+## 2. Data from an API
+
+Using the Tasty API from the practice activity, search for recipes that match the “Monday” recipe in your meal plan. Compile a table of all these recipes.
+
+(Warning - your free Tasty API account only allows 500 queries per month. You should not need more than this, but if you do end up with a recipe that has a large number of matches, you only need to scrape the first 100 of them.)
+
+Hint: You may need to use some text editing tricks to convert the recipe name into a searchable string. Not all recipe names will find a match on the Tasty API; that’s okay and you can leave these blank.
+
+```{python}
+# extracting the monday recipe name from the df
+monday_recipe = df_mealplan.loc[df_mealplan["Day of the Week"] == "Monday", "Name of Recipe"].iloc[0].strip(": ")
+
+```
+
+```{python}
+monday_recipe
+```
+
+```{python}
+url_tasty = "https://tasty.p.rapidapi.com/recipes/list?from=0&size=20"
+
+# limit to 100 results
+# using monday recipe as query
+querystring = {"from": "0",
+               "size": "100",
+               "q": monday_recipe}
+
+headers = {
+    "X-RapidAPI-Key": "ca485a1d11mshb68f1a5d4bc7918p16884cjsn20d259aa23a7",
+    "X-RapidAPI-Host": "tasty.p.rapidapi.com"
+}
+
+response = requests.get(url_tasty, headers=headers, params=querystring)
+
+#print(response.json())
+
+# normalize the JSON response into a DataFrame
+fettucine_alfredo_recipes = pd.json_normalize(response.json(), "results")
+
+```
+
+```{python}
+fettucine_alfredo_recipes["name"]
+```
+
+## 3. Automate it
+
+Write a function called get_mealplan_data that performs 2 and 3 above automatically. That is, your function should:
+
+Take as input a number 100-210, representing which weekly meal plan you are referencing.
+
+Scrape the meal plan from the meal planning site.
+
+Query the Tasty API for recipes matching each of the ones in the chosen weekly meal plan.
+
+Output a single dataset, which contains all the information from the above
+
+Hint: You may have an easier time if you write two smaller functions, get_weekly_plan and match_recipe, and then you use them inside your main function.
+
+Run the following code, which should work if your function is complete:
+
+df = get_mealplan_data(202)
+
+```{python}
+def get_weekly_plan(plan_num):
+  """
+  Scrapes a weekly plan from tastesbetterfromscratch.com
+  Args: plan_num-> must be from 100-210
+
+  Returns a DataFrame with columns: Week Day, Recipe Name, Link to Recipe, Recipe Price
+  """
+  # makes sure that plan is between 100-210
+  # looked this up
+  assert 100 <= plan_num <= 210
+
+  recipe_url = f"https://tastesbetterfromscratch.com/meal-plan-{plan_num}/"
+  headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+  html_content = requests.get(recipe_url, headers = headers).text
+  soup = BeautifulSoup(html_content, "html.parser")
+
+  recipes = []
+
+  day_pattern = re.compile(r"^(monday|tuesday|wednesday|thursday|friday)\s*:?", re.I)
+
+  for p in soup.select("div.entry-content p, div.entry-content li, p, li"):
+    strong = p.find("strong")
+    a = p.find("a", href = True)
+
+    if not strong or not a:
+      continue
+
+    strong_text = strong.get_text(strip = True)
+    if not day_pattern.match(strong_text):
+      continue
+
+    # finds the week day
+    day = day_pattern.match(strong_text).group(1).capitalize()
+    name = a.get_text(" ", strip = True)
+
+    # finds the recipe name
+    link = urljoin(recipe_url, a["href"])
+
+    # finds the price of recipe
+    p_text = " ".join(p.stripped_strings)
+    m_price = re.search(r"\$([\d.,]+)", p_text)
+    price = m_price.group(1) if m_price else None
+
+    recipes.append({
+      "Week Day": day,
+      "Recipe Name": name,
+      "Recipe Link": link,
+      "Recipe Price": price
+    })
+
+  df = pd.DataFrame(recipes)
+  
+  # checks to make sure that the days of the week are in the "Week Day" column
+  # enumerate() - can loop over an iterable and index at the same time
+  if not df.empty and "Week Day" in df.columns:
+    order = {d:i for i, d in enumerate(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])}
+    df = pd.DataFrame(recipes)
+    
+    df = df.sort_values(by = "Week Day", key = lambda s: s.map(order)).reset_index(drop = True)
+  return df
+```
+
+```{python}
+def match_recipe(recipe_name, limit = 100):
+  """
+  Uses Tasty (RapidAPI) to find matching recipes
+  Returns a DF with a subset of columns
+  """
+  # pattern for query when looking at Tasty Recipes
+  q = re.sub(r"[^A-Za-z0-9]+", " ", str(recipe_name)).strip().lower()
+
+  # if pattern is not found, it will return an empty DataFrame()
+  if not q:
+    return pd.DataFrame()
+
+    # query and RapidAPI
+  url_tasty = "https://tasty.p.rapidapi.com/recipes/list"
+  headers = {
+    "X-RapidAPI-Key": "ca485a1d11mshb68f1a5d4bc7918p16884cjsn20d259aa23a7",
+    "X-RapidAPI-Host": "tasty.p.rapidapi.com",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+  }
+
+  output = []
+
+# limits to only size 20 for queries
+  for i in range(0, limit, 20):
+    r = requests.get(url_tasty, headers = headers, params = {
+      "from": str(i),
+      "size": "20",
+      "q": q})
+# raise_for_status() - error checking -> raises an exception if the HTTP request failed
+# had to do this because I kept getting an error
+    r.raise_for_status()
+
+    results = (r.json() or {}).get("results", []) or []
+    if not results:
+      break
+    output.extend(results)
+    if len(results) < 20:
+      break
+
+  if not output:
+    return pd.DataFrame()
+
+    # normalizing with json_normalize()
+  df = pd.json_normalize(output)
+
+# choosing which columns I wanted to extract from the json_normalize() results
+  keep = [col for col in [
+    "id", "name", "num_servings", "total_time_minutes", "nutrition.calories", "nutrition.sugar", "nutrition.protein", "nutrition.fiber", "nutrition.fat", "nutrition.carbohydrates"
+    ] if col in df.columns]
+
+  if not keep:
+    return pd.DataFrame()
+
+  df = df[keep].copy()
+
+  # renaming columns for df
+  df = df.rename(columns = {
+    "name": "Tasty Recipe", "nutrition.calories": "calories", "nutrition.sugar": "sugar", "nutrition.protein": "protein", "nutrition.fiber": "fiber", "nutrition.fat": "fat", "nutrition.carbohydrates": "carbohydrates"})
+  return df
+```
+
+```{python}
+def get_mealplan_data(plan_num):
+  plan_data = get_weekly_plan(plan_num)
+  if plan_data.empty:
+    print("Couldn't find any meals on this page.")
+    return pd.DataFrame()
+
+  all_rows = []
+
+  for _, row in plan_data.iterrows():
+    name = row["Recipe Name"]
+    try:
+      matches = match_recipe(name, limit = 100)
+    except requests.HTTPError as e:
+      matches = pd.DataFrame()
+
+    if matches.empty:
+      base = pd.DataFrame([{
+        "id": None,
+        "Tasty Recipe": None,
+        "num_servings": None,
+        "total_time_minutes": None,
+        "calories": None,
+        "carbohydrates": None,
+        "sugar": None,
+        "protein": None,
+        "fat": None,
+        "fiber": None
+      }])
+
+    else:
+      base = matches
+
+# inserts based on a specific position
+# will add a new column
+    base.insert(0, "Week Day", row["Week Day"])
+    base.insert(1, "Recipe Name", row["Recipe Name"])
+    base.insert(2, "Recipe Link", row["Recipe Link"])
+    base.insert(3, "Recipe Price", row["Recipe Price"])
+# will be used and appended to initialized list: all_rows
+    all_rows.append(base)
+
+    # filters out empty/all-NA frames to avoid the FutureWarning
+    # i just wanted to get rid of this
+  frames = [f for f in all_rows if not f.empty and not f.isna().all(axis=None)]
+  if not frames:
+    return pd.DataFrame()
+  out = pd.concat(all_rows, ignore_index= True)
+
+  desired_cols = ["Week Day", "Recipe Name", "Recipe Link", "Recipe Price", "id", "Tasty Recipe", "num_servings", "total_time_minutes", "calories", "protein", "fiber", "fat", "sugar", "carbohydrates"]
+
+  out = out[[col for col in desired_cols if col in out.columns]]
+  return out
+
+```
+
+```{python}
+df = get_mealplan_data(202)
+df
+```
+
+```{python}
+# testing other mealplans below, but not assigning it to df
+# will be commenting these out when rendering to html, but they do work
+#get_mealplan_data(197)
+
+```
+
+```{python}
+#get_mealplan_data(100)
+```
+
+```{python}
+#get_mealplan_data(200)
+```
+
+## 4. Add a column with fuzzy matching
+
+Add a column to your df dataset indicating whether the recipe in that row is vegetarian or not.
+
+You may assume, for our purposes, that all recipes containing meat will have the name of a common meat in the recipe title. (Of course, that is not universally true - but we’ll assume it is for now.)
+
+```{python}
+import re
+
+# pick a title per row
+# if Tasty Recipe is there, choose this one
+# otherwise use the Recipe Name column
+title = (df.get("Tasty Recipe", pd.Series(pd.NA, index = df.index)).replace(r"^\s*$", pd.NA, regex = True).fillna(df["Recipe Name"]).astype(str))
+
+# common meat words
+meat_words = [
+    "beef","steak","pork","ham","bacon","chicken","turkey","duck",
+    "lamb","goat","veal","sausage","pepperoni","salami","chorizo",
+    "fish","salmon","tuna","cod","shrimp","prawn","lobster","crab","clam", "scallop"]
+
+# word-boundary regex that also works with plural forms
+# # used Chat GPT for help with regex to find the exact pattern
+pattern = re.compile(r"\b(?:" + "|".join(map(re.escape, meat_words)) + r")s?\b", re.IGNORECASE)
+
+# creating a boolean column: True = vegetarian, False = not vegetarian
+# basing it on recipe name and tasty recipe columns in df
+df["Vegetarian"] = ~title.str.contains(pattern, na=False)
+
+```
+
+```{python}
+# updating df by adding the df['Vegetarian'] column to it
+df
+```
+
+## 5. Analyze
+
+Make a visualization that tells a story about nutrition information (available in the Tasty API results) across the week for Mealplan 202. Your visualization should also indicate which meals are vegetarian.
+
+```{python}
+import plotnine as p9
+from plotnine import *
+
+# make sure the three macro columns exist & numeric
+for c in ["protein", "fat", "carbohydrates"]:
+    df[c] = pd.to_numeric(df.get(c), errors="coerce")
+
+# consistent day order
+day_order = ["Monday","Tuesday","Wednesday","Thursday","Friday"]
+df["Week Day"] = pd.Categorical(df["Week Day"], categories=day_order, ordered=True)
+
+# use a no-space, consistent label column
+df["VegLabel"] = df["Vegetarian"].map({True: "Vegetarian", False: "Not vegetarian"})
+
+# tidy long
+tidy_df = df.melt(
+    id_vars=["Week Day","VegLabel"],
+    value_vars=["protein","fat","carbohydrates"],
+    var_name="Nutrient",
+    value_name="grams"
+)
+
+# boxplot per day, faceted by Nutrient
+macro_nutrient_plot = (
+    ggplot(tidy_df, aes(x="Nutrient", y="grams", fill="VegLabel"))
+    + geom_boxplot(outlier_shape="o", outlier_alpha=0.6, alpha=0.85)
+    + geom_jitter(aes(color="VegLabel"), alpha = 0.3)
+    + facet_wrap("~VegLabel", ncol=2, scales="free_y")
+    + labs(
+        title="Macro Grams Distribution of Meal Plan 202",
+        x="Macronutrient", y="Grams", fill="Recipe Type"
+    )
+    + theme_minimal()
+    + theme(
+        figure_size=(11, 5.5),
+        axis_text_x=element_text(rotation=45, ha="right")
+    )
+)
+macro_nutrient_plot
+
+```
+
+This data visualization shows the boxplot distributions of protein, carbohydrate, and fat grams for Mealplan 202 across the week. The function `facet_wrap()` was used to split the data by vegetarian and non-vegetarian meals. The visualization indicates the macro levels for non-vegetarian meals are higher than vegetarian meals. In addition, it seems that the non-vegetarian diet appears to vary more in nutrient content than the vegetarian diet.
