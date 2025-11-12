@@ -1,0 +1,944 @@
+---
+title: "Lab 6: Variable Selection and Regularization"
+author: Sydney Thompson
+format:
+  html:
+    toc: true
+    code-fold: true
+    embed-resources: true
+echo: true
+theme: flatly
+---
+
+Github Link: <https://github.com/orsydney003/GSB_S544/tree/main/Lab6>
+
+## Dataset: Baseball Players
+# In this lab, we will use predictive modeling to design a model that predicts a baseball player’s salary in a given year.
+
+## This dataset was originally taken from the StatLib library which is maintained at Carnegie Mellon University. This is part of the data that was used in the 1988 ASA Graphics Section Poster Session. The salary data were originally from Sports Illustrated, April 20, 1987. The 1986 and career statistics were obtained from The 1987 Baseball Encyclopedia Update published by Collier Books, Macmillan Publishing Company, New York.
+
+## Format: A data frame with 322 observations of major league players on the following 20 variables.
+
+- `AtBat` Number of times at bat in 1986
+
+- `Hits` Number of hits in 1986
+
+- `HmRun` Number of home runs in 1986
+
+- `Runs` Number of runs in 1986
+
+- `RBI` Number of runs batted in in 1986
+
+- `Walks` Number of walks in 1986
+
+- `Years` Number of years in the major leagues
+
+- `CAtBat` Number of times at bat during his career
+
+- `CHits` Number of hits during his career
+
+- `CHmRun` Number of home runs during his career
+
+- `CRuns` Number of runs during his career
+
+- `CRBI` Number of runs batted in during his career
+
+- `CWalks` Number of walks during his career
+
+- `League` A factor with levels A and N indicating player’s league at the end of 1986
+
+- `Division` A factor with levels E and W indicating player’s division at the end of 1986
+
+- `PutOuts` Number of put outs in 1986
+
+- `Assists` Number of assists in 1986
+
+- `Errors` Number of errors in 1986
+
+- `Salary` 1987 annual salary on opening day in thousands of dollars
+
+- `NewLeague` A factor with levels A and N indicating player’s league at the beginning of 1987
+
+## You can download the dataset from here.
+
+## A couple notes about this lab:
+
+## 1. Although it isn’t listed as a specific question, don’t forget to clean your data at the beginning. How will you handle missing data? Are there any variables that need adjusting?
+
+## 2. There are a lot of variables in the dataset! You may want to use the remainder = "passthrough" trick in your column transformers, rather than typing out a ton of gene names.
+
+## 3. Don’t forget that in penalized regression, we must standardize our numeric variables.
+
+## 4. There is a lot of repetition in this lab. Think about ways to streamline your code - for example, you might consider writing simple functions to easily create pipelines.
+
+```{python}
+# import data-set
+import numpy as np
+import pandas as pd
+
+baseball_data = pd.read_csv("Hitters.csv")
+baseball_data
+```
+
+```{python}
+# examining the data
+baseball_data.info()
+
+```
+
+```{python}
+# descriptive statistics
+baseball_data.describe()
+```
+
+```{python}
+# removing columns with mostly NaNs
+good_cols = baseball_data.isna().sum() < 100
+baseball_data = baseball_data.loc[:,good_cols]
+
+# also dropping other NAs
+baseball_data = baseball_data.dropna()
+```
+
+```{python}
+# dummifying each categorical variable separately
+
+cat_league = pd.get_dummies(baseball_data['League'], prefix='League')
+cat_division = pd.get_dummies(baseball_data['Division'], prefix='Division')
+cat_newleague = pd.get_dummies(baseball_data['NewLeague'], prefix='newLeague')
+```
+
+```{python}
+# concatenating the dataframe to add the dummy variables to the original
+baseball_data = pd.concat([baseball_data, cat_division, cat_league, cat_newleague], axis = 1)
+baseball_data
+```
+
+```{python}
+# checking to make sure there are no more NAs
+baseball_data.isnull().sum()
+```
+
+```{python}
+# shape of dataframe (dimensions)
+baseball_data.shape
+```
+
+## Part I: Different Model Specs
+
+## A. Regression without regularization
+
+## 1. Create a pipeline that includes all the columns as predictors for Salary, and performs ordinary linear regression
+
+```{python}
+
+from sklearn.pipeline import Pipeline
+from sklearn.compose import make_column_selector, ColumnTransformer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder, PolynomialFeatures
+from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.metrics import r2_score
+```
+
+```{python}
+baseball_data.columns
+```
+
+```{python}
+X = baseball_data.drop('Salary', axis = 1)
+y = baseball_data["Salary"]
+```
+
+```{python}
+# model 1
+# LinearRegression()
+
+ct1 = ColumnTransformer(
+  [
+    ("dummify",
+    OneHotEncoder(sparse_output = False, handle_unknown='ignore'),
+    make_column_selector(dtype_include=object)),
+    ("standardize",
+    StandardScaler(),
+    make_column_selector(dtype_include=np.number))
+  ],
+  remainder = "passthrough"
+).set_output(transform="pandas")
+
+ct1.fit(X)
+
+ct1.transform(X)
+
+linear_regression_pipe = Pipeline([
+    ('preprocessor', ct1),
+    ('linear_regression', LinearRegression())
+])
+
+```
+
+## 2. Fit this pipeline to the full dataset, and interpret a few of the most important coefficients.
+
+```{python}
+linear_regression_pipe_fit = linear_regression_pipe.fit(X, y)
+linear_regression_pipe_fit
+```
+
+```{python}
+# finding the coefficients of all the variables and sorting
+
+lr_coefficients = linear_regression_pipe_fit.named_steps['linear_regression'].coef_
+lr_coefficients_names = linear_regression_pipe_fit.named_steps["preprocessor"].get_feature_names_out()
+coefficients_df = pd.DataFrame({"Variable": lr_coefficients_names, "Coef": lr_coefficients})
+
+coefficients_df.sort_values(by = "Coef", ascending=False).head(5)
+```
+
+My top 5 coefficients in this pipeline were `CRuns`, `Hits`, `CRBI`, `Walks`, and `CHits`. These variables are player performance statistics, and they seem to be strong predictors of salary. Baseball players who performed better in 1986 tended to earn higher salaries in 1987 and for their overall careers.
+
+However, we should keep in mind that there may be overfitting because career stats can be highly correlated with each other. 
+
+## 3. Use cross-validation to estimate the MSE you would expect if you used this pipeline to predict 1989 salaries.
+
+```{python}
+# cross validation score
+
+mse_scores1 = -cross_val_score(linear_regression_pipe, X, y, scoring = "neg_mean_squared_error", cv = 5)
+mse_scores1
+
+mse_scores1.mean()
+
+```
+
+The MSE I would expect if I used this pipeline to predict 1989 salaries is approximately 121,136.31 for a linear regression model.
+
+
+## B. Ridge regression
+
+## 1. Create a pipeline that includes all the columns as predictors for `Salary`, and performs ordinary ridge regression.
+
+```{python}
+# model 2
+# Ridge()
+
+from sklearn.linear_model import Ridge
+
+ridge_pipeline = Pipeline(
+  [("preprocessor", ct1),
+  ("ridge_regression", Ridge())]
+).set_output(transform="pandas")
+
+```
+
+## 2. Use cross-validation to tune the lambda hyperparameter.
+
+```{python}
+# cross validation score
+ridge_cv = -cross_val_score(ridge_pipeline, X, y, cv = 5, scoring = 'neg_mean_squared_error')
+ridge_cv
+```
+
+```{python}
+ridge_fitted = ridge_pipeline.fit(X, y)
+ridge_fitted
+```
+
+```{python}
+from sklearn.model_selection import GridSearchCV
+
+alphas = {'ridge_regression__alpha': np.array([1000, 100, 10, 1, 0.1, 0.01])}
+gscv = GridSearchCV(ridge_pipeline, param_grid=alphas, cv = 5, scoring='neg_mean_squared_error')
+
+```
+
+```{python}
+gscv_fitted = gscv.fit(X, y)
+
+ridge_results = pd.DataFrame(gscv_fitted.cv_results_)
+ridge_results
+
+print("Best Alpha For Ridge Regression", gscv_fitted.best_params_)
+```
+
+The best alpha (lambda) for ridge regression is 1.
+
+## 3. Fit the pipeline with your chosen lambda to the full dataset, and interpret a few of the most important coefficients.
+
+```{python}
+
+alpha_ridge_pipe = Pipeline(
+  [("preprocessor", ct1),
+  ("ridge_regression", Ridge(alpha = 1))]
+)
+
+alpha_ridge_pipe.fit(X, y)
+
+# finding the coefficients and sorting
+coefficients_ridge = alpha_ridge_pipe.named_steps['ridge_regression'].coef_ 
+ridge_coef_names = alpha_ridge_pipe.named_steps["preprocessor"].get_feature_names_out()
+ridge_coef_df = pd.DataFrame({"Variable": ridge_coef_names, "Coef": coefficients_ridge})
+
+ridge_coef_df.sort_values(by = "Coef", ascending=False).head(5)
+
+```
+
+My top 5 coefficients were `CRuns`, `Hits`, `CRBI`, `CHits`, and `Walks`. The ridge pipeline produced similar predictors; however, we can see that the coefficients are much smaller. The shrinkage shows the reduction in variability, which stabilizes the model.
+
+The MSE is slightly smaller, showing that the Ridge regression pipeline reduced overfitting and improved the model. All the coefficients are closer to zero when compared to the OLS model above.
+
+## 4. Report the MSE you would expect if you used this pipeline to predict 1989 salaries.
+
+```{python}
+gscv_fitted = gscv.fit(X, y)
+
+gscv_fitted.cv_results_
+print("Estimated MSE for Ridge Pipeline", -gscv_fitted.best_score_)
+```
+
+The MSE I would expect from this ridge pipeline to predict 1989 salaries is approximately 119,206.10. 
+
+## C. Lasso Regression
+
+## 1. Create a pipeline that includes all the columns as predictors for `Salary`, and performs ordinary lasso regression.
+
+```{python}
+# model 3
+# Lasso()
+# was getting convergent warnings, so I added the max_iter parameter
+# this removed them
+
+from sklearn.linear_model import Lasso
+
+lasso_pipeline = Pipeline(
+  [("preprocessor", ct1),
+  ("lasso_regression", Lasso(max_iter=10000))]
+).set_output(transform="pandas")
+
+```
+
+```{python}
+lasso_fitted = lasso_pipeline.fit(X, y)
+lasso_fitted
+```
+
+## 2. Use cross-validation to tune the lambda hyperparameter.
+
+```{python}
+lasso_cv = -cross_val_score(lasso_pipeline, X, y, cv = 5, scoring = "neg_mean_squared_error")
+lasso_cv
+```
+
+```{python}
+
+alphas = {'lasso_regression__alpha': np.array([1000, 100, 10, 1, 0.1, 0.01])}
+gscv_lasso = GridSearchCV(lasso_pipeline, param_grid=alphas, cv = 5, scoring='neg_mean_squared_error')
+
+```
+
+```{python}
+gscv_fitted_lasso = gscv_lasso.fit(X, y)
+
+gscv_fitted_lasso.cv_results_
+
+lasso_fitted_df = pd.DataFrame(gscv_fitted_lasso.cv_results_)
+lasso_fitted_df
+
+print("Best Alpha Parameter For Lasso", gscv_fitted_lasso.best_params_)
+```
+
+The best alpha parameter for the Lasso pipeline is 1.
+
+## 3. Fit the pipeline with your chosen lambda to the full dataset, and interpret a few of the most important coefficients.
+
+```{python}
+
+alpha_lasso_pipe = Pipeline(
+  [("preprocessor", ct1),
+  ("lasso_regression", Lasso(alpha = 1))]
+)
+
+alpha_lasso_pipe.fit(X, y)
+
+# finding the coefficients and sorting
+coefficients_lasso = alpha_lasso_pipe.named_steps['lasso_regression'].coef_ 
+lasso_coef_names = alpha_lasso_pipe.named_steps["preprocessor"].get_feature_names_out()
+lasso_coef_df = pd.DataFrame({"Variable": lasso_coef_names, "Coef": coefficients_lasso})
+
+lasso_coef_df.sort_values(by = "Coef", ascending=False).head(5)
+
+```
+
+My top 5 coefficients are `CRuns`, `Hits`, `CRBI`, `Walks`, and `Division_E`. With the Lasso model, we see that this pipeline shrinks and eliminates some of the coefficients from the model. In this case, it set the weaker predictors to zero, and still focuses on similar player performance variables from above.
+
+This pipeline simplifies the model drastically. The MSE is slightly higher than the Ridge MSE; however, it doesn't mean it is more accurate in predicting salary.
+
+## 4. Report the MSE you would expect if you used this pipeline to predict 1989 salaries.
+
+```{python}
+print("MSE for Lasso Pipeline", -gscv_fitted_lasso.best_score_)
+```
+
+The MSE I would expect if I used this pipeline to predict 1989 salaries is approximately 119,758.03.
+
+## D. Elastic Net
+
+## 1. Create a pipeline that includes all the columns as predictors for Salary, and performs ordinary elastic net regression.
+
+```{python}
+# model 4
+# ElasticNet()
+
+from sklearn.linear_model import ElasticNet
+
+elastic_net_pipeline = Pipeline(
+  [("preprocessor", ct1),
+  ("elastic_net", ElasticNet(max_iter=1000000))]
+).set_output(transform="pandas")
+```
+
+## 2. Use cross-validation to tune the lambda and alpha hyperparameters.
+```{python}
+elastic_net_cv = -cross_val_score(elastic_net_pipeline, X, y, cv = 5, scoring ='neg_mean_squared_error')
+elastic_net_cv
+```
+
+```{python}
+elastic_fitted = elastic_net_pipeline.fit(X, y)
+elastic_fitted
+```
+
+```{python}
+
+param_grid = {
+    "elastic_net__alpha": [1, 10, 100, 1000],
+    "elastic_net__l1_ratio": np.arange(0.0, 1.2, 0.2),
+}
+
+gscv_elastic_net = GridSearchCV(elastic_net_pipeline, param_grid=param_grid, cv = 5, scoring='neg_mean_squared_error')
+```
+
+```{python}
+
+gscv_fitted_elnet = gscv_elastic_net.fit(X, y)
+
+print("Best Alpha and L1 for Elastic Net", gscv_fitted_elnet.best_params_)
+
+df_cv_results_ = pd.DataFrame(gscv_fitted_elnet.cv_results_)
+```
+
+The best alpha for the elastic net pipeline is 1. The best l1_ratio for the elastic net pipeline is 1.0.
+
+## 3. Fit the pipeline with your chosen hyperparameters to the full dataset, and interpret a few of the most important coefficients.
+
+```{python}
+
+alpha_enet_pipe= Pipeline(
+  [("preprocessor", ct1),
+  ("elastic_net", ElasticNet(alpha = 1, l1_ratio=1.0, max_iter=100000))]
+)
+
+alpha_enet_pipe.fit(X, y)
+
+# finding the coefficients and sorting
+coefficients_elnet = alpha_enet_pipe.named_steps['elastic_net'].coef_ 
+elnet_coef_names = alpha_enet_pipe.named_steps["preprocessor"].get_feature_names_out()
+elnet_coef_df = pd.DataFrame({"Variable": elnet_coef_names, "Coef": coefficients_elnet})
+
+elnet_coef_df.sort_values(by = "Coef", ascending=False).head(5)
+```
+
+My top 5 coefficients were `CRuns`, `Hits`, `CRBI`, `Walks`, and `Division_E`. These are the same coefficients as the Lasso pipeline. This pipeline uses the lasso and ridge penalties, which balances the shrinkage and variable selection. 
+
+This pipeline had a similar MSE to the Lasso pipeline. It seems like many of the predictors are highly correlated. Therefore, this helped stabilize variable selection.
+
+## 4. Report the MSE you would expect if you used this pipeline to predict 1989 salaries.
+
+```{python}
+
+print("MSE for Elastic Net Pipeline", -gscv_fitted_elnet.best_score_)
+```
+
+The MSE I would expect for the elastic net pipeline is approximately 119,761.65.
+
+## Part II. Variable Selection
+
+Based on the above results, decide on:
+
+- Which numeric variable is most important.
+
+- Which five numeric variables are most important
+
+- Which categorical variable is most important
+
+For each of the four model specifications, compare the following possible feature sets:
+
+1. Using only the one best numeric variable.
+
+2. Using only the five best variables.
+
+3. Using the five best numeric variables and their interactions with the one best categorical variable.
+
+Report which combination of features and model performed best, based on the validation metric of MSE.
+
+(Note: lambda and alpha must be re-tuned for each feature set.)
+
+## Based on results above:
+
+```{python}
+# best numerical variable
+best_num_1 = "CRuns"
+
+# best categorical variable
+best_cat = "Division"
+```
+
+```{python}
+# linear coefficients (from part 1) -> finding absolute values
+coefficients_df["abs_coef"] = coefficients_df["Coef"].abs()
+coefficients_df.sort_values(by="abs_coef", ascending=False).head(10)
+
+```
+
+From looking at the dataframe, the best numerical variable is CRuns. The best 5 variables are CRuns, CAtBat, Hits, AtBat, and CRBI. The best categorical variable is Division.
+
+```{python}
+# best 5 linear variables
+best_linear_5 = ["CRuns","CAtBat","Hits","AtBat","CRBI"]            
+
+```
+
+```{python}
+# ridge coefficients from part 1 -> finding absolute values
+ridge_coef_df["abs_coef"] = ridge_coef_df["Coef"].abs()
+ridge_coef_df.sort_values(by="abs_coef", ascending=False).head(10)
+```
+
+From the dataframe above, the best ridge numerical variable is CRuns. The best 5 numerical variables are CRuns, Hits, AtBat, CAtBat, and CWalks. The best categorical variable is Division.
+
+```{python}
+# best ridge variables
+best_ridge_5 = ["CRuns","Hits","AtBat","CAtBat","CWalks"]
+```
+
+```{python}
+# lasso coefficients from part 1 -> finding absolute values
+lasso_coef_df["abs_coef"] = lasso_coef_df["Coef"].abs()
+lasso_coef_df.sort_values(by="abs_coef", ascending=False).head(10)
+```
+
+From looking at the dataframe, the best numerical variable is CRuns. The best 5 variables are CRuns, Hits, AtBat, CRBI, and CWalks. The best categorical variable is Division.
+
+```{python}
+# best 5 lasso variables
+best_lasso_5 = ["CRuns","Hits","AtBat","CRBI","CWalks"]
+```
+
+```{python}
+# elastic net coefficients from part 1 -> finding absolute values
+elnet_coef_df["abs_coef"] = elnet_coef_df["Coef"].abs()
+elnet_coef_df.sort_values(by="abs_coef", ascending=False).head(10)
+```
+
+From looking at the dataframe, the best numerical variable is CRuns. The best 5 variables are CRuns, Hits, AtBat, CRBI, and CWalks. The best categorical variable is Division.
+
+```{python}
+# best 5 elastic net variables                       
+best_elnet_5 = ["CRuns","Hits","AtBat","CRBI","CWalks"]
+```
+
+```{python}
+
+# for tuning alphas and l1_ratio (for elastic net) 
+
+alphas = [0.001, 0.01, 0.1, 1, 10, 100, 300, 1000]
+enet_grid = {
+    "elastic_net__alpha": [0.001, 0.01, 0.1, 1, 10, 100],
+    "elastic_net__l1_ratio": [0.1, 0.3, 0.5, 0.7, 0.9, 1.0]
+}
+
+```
+
+## Set 1: Using only the one best numeric variable
+
+```{python}
+
+# column transformer for set 1
+
+ct_best_num = ColumnTransformer(
+    transformers=[
+        ("standardize", StandardScaler(), [best_num_1]),
+
+    ],
+    remainder="drop"
+)
+
+```
+
+```{python}
+# linear regression pipeline
+
+best_num_linear_pipe = Pipeline([
+    ("preprocessor", ct_best_num),
+    ("linear_regression", LinearRegression())
+])
+
+mse_best_num_linear = -cross_val_score(best_num_linear_pipe, X, y, scoring="neg_mean_squared_error", cv=5).mean()
+print("MSE For Linear Pipeline", mse_best_num_linear)
+
+```
+
+The MSE for the linear regression pipeline using only the best numerical variable is approximately 143,812.94.
+
+```{python}
+
+# ridge pipeline 
+best_num_ridge_pipe = Pipeline([
+    ("preprocessor", ct_best_num),
+    ("ridge", Ridge())
+])
+
+gscv_best_num_ridge = GridSearchCV(best_num_ridge_pipe, param_grid={"ridge__alpha": alphas}, scoring="neg_mean_squared_error", cv=5)
+
+gscv_best_num_ridge.fit(X, y)
+
+print("Best alpha for Ridge:", gscv_best_num_ridge.best_params_["ridge__alpha"])
+print("MSE for Ridge:", -gscv_best_num_ridge.best_score_)
+
+```
+
+The best alpha for the ridge regression is 10. The MSE for this ridge regression is approximately 143,658.52.
+
+```{python}
+# lasso pipeline
+# used max_iter again to remove convergent warnings
+
+pipe_best_num_lasso = Pipeline([
+    ("preprocessor", ct_best_num),
+    ("lasso", Lasso(max_iter=10000))
+])
+
+gscv_best_num_lasso = GridSearchCV(pipe_best_num_lasso, param_grid={"lasso__alpha": alphas}, scoring="neg_mean_squared_error", cv=5)
+gscv_best_num_lasso.fit(X, y)
+
+print("Best Lasso alpha", gscv_best_num_lasso.best_params_["lasso__alpha"])
+print("MSE for Lasso regression", -gscv_best_num_lasso.best_score_)
+
+```
+
+The best alpha for the lasso regression is 10. The MSE for this lasso regression is approximately 143,793.45.
+
+```{python}
+
+# elastic net pipeline
+# using max_iter for removing convergent warnings
+
+pipe_best_num_enet = Pipeline([
+    ("preprocessor", ct_best_num),
+    ("elastic_net", ElasticNet(max_iter=10000))
+])
+
+gscv_best_num_enet = GridSearchCV(pipe_best_num_enet, param_grid=enet_grid, scoring="neg_mean_squared_error", cv=5)
+gscv_best_num_enet.fit(X, y)
+
+print("Best Elastic Net parameters", gscv_best_num_enet.best_params_)
+print("MSE for Elastic Net regression", -gscv_best_num_enet.best_score_)
+
+```
+
+The best alpha for the elastic net regression is 0.1, and the best l1_ratio is 0.5. The MSE for this pipeline is approximately 143,655.08.
+
+## Set 2: Using only the five best variables
+
+```{python}
+ct_best5_linear = ColumnTransformer(
+    transformers=[
+        ("standardize", StandardScaler(), best_linear_5),
+    ],
+    remainder="drop"
+)
+
+pipe_best5_linear = Pipeline([
+    ("preprocessor", ct_best5_linear),
+    ("linear_regression", LinearRegression())
+])
+
+mse_best5_linear = -cross_val_score(pipe_best5_linear, X, y, scoring="neg_mean_squared_error", cv=5).mean()
+print("MSE for Linear Regression", mse_best5_linear)
+
+```
+
+The MSE for this linear regression pipeline is approximately 121,228.22.
+
+```{python}
+
+# ridge pipeline with 5 best numerical variables
+# new column transformer
+
+ct_best5_ridge = ColumnTransformer(
+    transformers=[
+        ("standardize", StandardScaler(), best_ridge_5),
+    ],
+    remainder="drop"
+)
+
+pipe_best5_ridge = Pipeline([
+    ("preprocessor", ct_best5_ridge),
+    ("ridge", Ridge())
+])
+
+gscv_best5_ridge = GridSearchCV(pipe_best5_ridge, param_grid={"ridge__alpha": alphas}, scoring="neg_mean_squared_error", cv=5)
+gscv_best5_ridge.fit(X, y)
+
+print("Best Ridge alpha:", gscv_best5_ridge.best_params_["ridge__alpha"])
+print("MSE:", -gscv_best5_ridge.best_score_)
+
+```
+
+The best alpha for the ridge pipeline using the 5 best numerical variables is 1. The MSE for this pipeline is approximately 126,800.37.
+
+```{python}
+
+# lasso pipeline with 5 best numerical variables
+# new column transformer
+
+ct_best5_lasso = ColumnTransformer(
+    transformers=[
+        ("standardize", StandardScaler(), best_lasso_5),
+    ],
+    remainder="drop"
+)
+
+pipe_best5_lasso = Pipeline([
+    ("preprocessor", ct_best5_lasso),
+    ("lasso", Lasso(max_iter=10000))
+])
+
+gscv_best5_lasso = GridSearchCV(pipe_best5_lasso, param_grid={"lasso__alpha": alphas}, scoring="neg_mean_squared_error", cv=5)
+gscv_best5_lasso.fit(X, y)
+
+print("Best Lasso alpha:", gscv_best5_lasso.best_params_["lasso__alpha"])
+print("MSE:", -gscv_best5_lasso.best_score_)
+
+```
+
+The best alpha for the lasso pipeline using the 5 best numerical variables is 1. The MSE for this pipeline is approximately 125,289.76.
+
+```{python}
+
+# elastic net pipeline using the 5 best numerical variables
+# new column transformer
+
+ct_best5_elnet = ColumnTransformer(
+    transformers=[
+        ("standardize", StandardScaler(), best_elnet_5),
+    ],
+    remainder="drop"
+)
+
+pipe_best5_elnet = Pipeline([
+    ("preprocessor", ct_best5_elnet),
+    ("elastic_net", ElasticNet(max_iter=10000))
+])
+
+gscv_best5_elnet = GridSearchCV(pipe_best5_elnet, param_grid=enet_grid, scoring="neg_mean_squared_error", cv=5)
+gscv_best5_elnet.fit(X, y)
+
+print("Best Elastic Net parameters:", gscv_best5_elnet.best_params_)
+print("MSE:", -gscv_best5_elnet.best_score_)
+
+```
+
+The best alpha for the elastic net pipeline using the 5 best numerical variables is 0.1; the best l1_ratio is 0.9. The MSE for this pipeline is approximately 124,989.38.
+
+## Set 3: Using the five best numeric variables and their interactions with the one best categorical variable
+
+```{python}
+
+ct_best5_cat_linear = ColumnTransformer(
+    transformers=[
+        ("standardize", StandardScaler(), best_linear_5),
+        ("dummify", OneHotEncoder(handle_unknown = "ignore", sparse_output=False), [best_cat])
+    ],
+    remainder="drop"
+)
+
+pipe_best5_cat_linear = Pipeline([
+    ("preprocessor", ct_best5_cat_linear),
+    ("poly", PolynomialFeatures(degree = 2, interaction_only=True, include_bias=False)),
+    ("linear", LinearRegression())
+])
+
+mse_best5_cat_linear = -cross_val_score(pipe_best5_cat_linear, X, y, scoring="neg_mean_squared_error", cv=5).mean()
+print("Linear MSE:", mse_best5_cat_linear)
+
+```
+
+The MSE for this linear regression is approximately 170,576.70.
+
+```{python}
+# ridge pipeline with interactions as well
+# creating new column transformer too
+
+ct_best5_cat_ridge = ColumnTransformer(
+    transformers=[
+        ("standardize", StandardScaler(), best_ridge_5),
+        ("dummify", OneHotEncoder(handle_unknown = "ignore", sparse_output=False), [best_cat])
+    ],
+    remainder="drop"
+)
+
+pipe_best5_cat_ridge = Pipeline([
+    ("preprocessor", ct_best5_cat_ridge),
+    ("poly", PolynomialFeatures(degree = 2, interaction_only=True, include_bias=False)),
+    ("ridge", Ridge())
+])
+
+gscv_best5_cat_ridge = GridSearchCV(pipe_best5_cat_ridge, param_grid={"ridge__alpha": alphas}, scoring="neg_mean_squared_error", cv=5)
+gscv_best5_cat_ridge.fit(X, y)
+
+print("Ridge Best alpha:", gscv_best5_cat_ridge.best_params_["ridge__alpha"])
+print("Ridge MSE:", -gscv_best5_cat_ridge.best_score_)
+
+```
+
+The best alpha for the ridge regression is 300. The MSE for this ridge pipeline is approximately 113,101.67. 
+
+```{python}
+
+# lasso pipeline with interactions as well
+# creating new column transformer too
+
+ct_best5_cat_lasso = ColumnTransformer(
+    transformers=[
+        ("standardize", StandardScaler(), best_lasso_5),
+        ("dummify", OneHotEncoder(handle_unknown = "ignore", sparse_output=False), [best_cat])
+    ],
+    remainder="drop"
+)
+
+pipe_best5_cat_lasso = Pipeline([
+    ("preprocessor", ct_best5_cat_lasso),
+    ("poly", PolynomialFeatures(degree = 2, interaction_only=True, include_bias=False)),
+    ("lasso", Lasso(max_iter=10000000))
+])
+
+gscv_best5_cat_lasso = GridSearchCV(pipe_best5_cat_lasso, param_grid={"lasso__alpha": alphas}, scoring="neg_mean_squared_error", cv=5)
+gscv_best5_cat_lasso.fit(X, y)
+
+print("Lasso best alpha:", gscv_best5_cat_lasso.best_params_["lasso__alpha"])
+print("Lasso MSE:", -gscv_best5_cat_lasso.best_score_)
+
+```
+
+The best alpha for the lasso pipeline is 10. The MSE for this pipeline is approximately 126,993.72.
+
+```{python}
+
+# elastic net pipeline with interactions as well
+# creating new column transformer too
+
+ct_best5_cat_elnet = ColumnTransformer(
+    transformers=[
+        ("standardize", StandardScaler(), best_elnet_5),
+        ("dummify", OneHotEncoder(handle_unknown = "ignore", sparse_output=False), [best_cat])
+    ],
+    remainder="drop"
+)
+
+pipe_best5_cat_elnet = Pipeline([
+    ("preprocessor", ct_best5_cat_elnet),
+    ("poly", PolynomialFeatures(degree = 2, interaction_only=True, include_bias=False)),
+    ("elastic_net", ElasticNet(max_iter=10000000))
+])
+
+gscv_best5_cat_elnet = GridSearchCV(pipe_best5_cat_elnet, param_grid=enet_grid, scoring="neg_mean_squared_error", cv=5)
+gscv_best5_cat_elnet.fit(X, y)
+
+print("Elastic Net best parameters:", gscv_best5_cat_elnet.best_params_)
+print("Elastic Net MSE:", -gscv_best5_cat_elnet.best_score_)
+
+```
+
+The best alpha for the elastic net pipeline is 1. Its best l1_ratio is 0.3. Finally, the MSE for this pipeline is approximately 105,057.47.
+
+After running all the models, my best model is the Elastic Net with the 5 best numerical variables and interaction with the categorical variable `Division`. Its MSE is the lowest by far (105,057.47).
+
+## Part III. Discussion
+
+## A. Ridge
+## Compare your Ridge models with your ordinary regression models. How did your coefficients compare? Why does this make sense?
+
+In Ridge regression, we modify the OLS model by adding a penalty term that shrinks the regression coefficients toward zero. This penalty limits how flexible the model can be. In my results, the Ridge coefficients were smaller than those from the standard linear regression. There is a tradeoff with increasing the bias and decreasing variance.
+
+Ridge regression helps prevent overfitting, especially when predictors are correlated. The lambda controls how strong the shrinkage is. If it is equal to 0, there is no penalty. If lambda is large, lambda over-shrinks, which results in underfitting the model.
+
+## B. LASSO
+## Compare your LASSO model in I with your three LASSO models in II. Did you get the same results? Why does this make sense? Did you get the same MSEs? Why does this make sense?
+
+Lasso regression works similarly to Ridge; however, it uses the absolute values of the coefficients in its penalty instead of the squares. As a result, some coefficients are exactly zero. This effectively removes those predictors from the model.
+
+In this case, the Lasso model from Part I dropped several predictors entirely. The MSEs were slightly smaller after tuning lambda because redundant predictors were removed.
+
+This makes sense because Lasso simplifies the model by only focusing on the most important predictors.
+
+## C. Elastic Net
+## Compare your MSEs for the Elastic Net models with those for the Ridge and LASSO models. Why does it make sense that Elastic Net always “wins”?
+
+Elastic Net combines both Ridge and Lasso penalties in a single model. The alpha parameter controls the overall regularization, and l1_ratio determines the balance between Ridge- and Lasso-type penalties.
+
+In the results, Elastic Net produced MSEs that were less than or equal to the individual Ridge and Lasso pipelines. When predictors are highly correlated, Lasso will pick one variable from each correlated group, while Ridge keeps all of them.
+
+The balance of the two penalties explain why Elastic Net often “wins.” This is because it has the best trade-off between bias and variance. In addition, it stabilizes the coefficients the best, which will give better predictions.
+
+## Part IV: Final Model
+## Fit your final best pipeline on the full dataset, and summarize your results in a few short sentences and a plot.
+
+```{python}
+# use the tuned winner from your grid search
+best_pipeline = gscv_best5_cat_elnet.best_estimator_
+
+best_cv_mse = -gscv_best5_cat_elnet.best_score_
+best_params = gscv_best5_cat_elnet.best_params_
+
+# fit on full data
+best_pipeline.fit(X, y)
+
+print("Best pipeline:", best_pipeline)
+print("Best MSE:", best_cv_mse)
+print("Best parameters:", best_params)
+
+```
+
+
+```{python}
+# based on the best pipeline,
+# want to compare the actual vs. predicted salaries
+y_pred = best_pipeline.predict(X)
+prediction_df = pd.DataFrame({"Actual": y, "Predicted": y_pred})
+prediction_df["Residual"] = prediction_df["Actual"] - prediction_df["Predicted"]
+
+```
+
+```{python}
+from plotnine import *
+
+# Predicted vs. Actual Salaries
+pred_plot = (
+    ggplot(prediction_df, aes("Actual", "Predicted"))
+    + geom_point(alpha=0.7)
+    + geom_abline(slope=1, intercept=0, linetype="dashed")
+    + labs(title="Predicted vs Actual Salary",
+           x="Actual Salary in 1987 ($K)",
+           y="Predicted Salary in 1989 ($K)")
+    + theme_minimal()
+)
+pred_plot
+
+```
+
+After running all the models, my best model is the Elastic Net with the 5 best numerical variables (`CHits`, `CRBI`, `CWalks`, `Years`, `CAtBat`) and interaction with the categorical variable `Division`. Its MSE is the lowest by far (105,057.47).
+
+The best alpha for the elastic net pipeline is 1. Its best l1_ratio is 0.3.
+
+I created a Predicted vs Actual plot comparing the actual salaries in 1987 and the predicted salaries in 1989. This seems to be a well fitted model; I don't see any over- or under-fitting. The values line up well with the observed values.
+
+The most influential predictors included player performance metrics (`CRuns`, `CHits`, and `CRBI`) and interactions with `Division`. This suggests that both performance and league division play key roles in determining a player's salary.
